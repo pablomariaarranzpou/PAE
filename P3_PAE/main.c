@@ -27,14 +27,9 @@
 #define SW1_BIT BIT(SW1_POS)
 #define SW2_BIT BIT(SW2_POS)
 typedef uint8_t byte;
-volatile byte lecturaDato_UART;
+volatile byte DatoLeido_UART;
 volatile bool Byte_Recibido;
 volatile byte timeOut;
-
-
-volatile uint8_t sensorL;
-volatile uint8_t sensorC;
-volatile uint8_t sensorR;
 
 
 typedef struct RxReturn{
@@ -67,6 +62,15 @@ void Sentit_Dades_Tx(void)
     P3OUT |= BIT0; //El pin P3.0 (DIRECTION_PORT) el posem a 1 (Tx)
 }
 
+void EUSCIA2_IRQHandler(void)
+{ //interrupcion de recepcion en la UART A0
+    EUSCI_A2->IFG &=~EUSCI_A_IFG_RXIFG; //Limpia la interrupcion
+    UCA2IE &= ~UCRXIE; //Interrupciones desactivadas en RX
+    DatoLeido_UART = UCA2RXBUF;
+    Byte_Recibido=true;
+    UCA2IE |= UCRXIE; //Interrupciones reactivadas en RX
+    UCA2MCTLW |= (0x25 << 8);
+}
 
 void TxUACx(uint8_t bTxdData)
 {
@@ -91,18 +95,12 @@ void init_UART(void)
     UCA2CTLW0 |= UCSSEL__SMCLK; //UCSYNC=0 mode as�ncron
     UCA2MCTLW = UCOS16; // Necessitem sobre-mostreig => bit 0 = UCOS16 = 1; 16 muestras por cada bit tramitido.
     UCA2BRW = 1;
-    P3SEL0 |= BIT2 | BIT3; //I/O funci�: P1.3 = UART0TX, P1.2 = UART0RX
-    P3SEL1 &= ~ (BIT2 | BIT3); // lo configura como primer funcion alternativa
+    P3SEL0 |= BIT1 | BIT2; //I/O funci�: P1.3 = UART0TX, P1.2 = UART0RX
+    P3SEL1 &= ~ (BIT1 | BIT2); // lo configura como primer funcion alternativa
     UCA2CTLW0 &= ~UCSWRST; //Reactivem la l�nia de comunicacions s�rie
     EUSCI_A2->IFG &= ~EUSCI_A_IFG_RXIFG; // Clear eUSCI RX interrupt flag
     //Mantenemos siempre por defecto RXD la cambiamos a TXD no mas cuando queremos transitir datos a algun modulo.
     EUSCI_A2->IE |= EUSCI_A_IE_RXIE; // Enable USCI_A0 RX interrupt, nomes quan tinguem la recepcio
-}
-
-void init_timer(void){
-    TIMER_A1->CTL=TIMER_A_CTL_ID__1 | TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_CLR | TIMER_A_CTL_MC__UP;
-    TIMER_A1->CCR[0]= 240000;
-    TIMER_A1->CCTL[0] |= TIMER_A_CCTLN_CCIE;
 }
 
 void Activa_TimerA1_TimeOut(void){
@@ -133,7 +131,7 @@ struct RxReturn RxPacket(void)
             if (Rx_time_out) break; //sale del while
         }
         if (Rx_time_out) break; //sale del for si ha habido TimeOut
-        respuesta.StatusPacket[bCount] = lecturaDato_UART; //Get_Byte_Leido_UART();
+        respuesta.StatusPacket[bCount] = DatoLeido_UART; //Get_Byte_Leido_UART();
 
     }
     if (!Rx_time_out)
@@ -150,7 +148,7 @@ struct RxReturn RxPacket(void)
                 if (Rx_time_out) break;
             }
             if (Rx_time_out) break;
-            respuesta.StatusPacket[bCount + 4] = lecturaDato_UART;
+            respuesta.StatusPacket[bCount + 4] = DatoLeido_UART;
         }
 
         bChecksum = 0;
@@ -222,26 +220,21 @@ void init_timers(void)
 
 
     TIMER_A1->CTL=TIMER_A_CTL_ID__1 | TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_CLR | TIMER_A_CTL_MC__UP;
-    TIMER_A1->CCR[0]=240000;
+    TIMER_A1->CCR[0]= 240000;
     TIMER_A1->CCTL[0] |= TIMER_A_CCTLN_CCIE;
 
 }
 
 
-void EUSCIA0_IRQHandler(void)
-{
-    //interrupcion de recepcion en la UART A0
-    EUSCI_A0->IFG &=~ EUSCI_A_IFG_RXIFG; // Clear interrupt
-    UCA0IE &= ~UCRXIE; //Interrupciones desactivadas en RX
-    lecturaDato_UART = UCA0RXBUF;
-    Byte_Recibido= 1;
-    UCA0IE |= UCRXIE; //Interrupciones reactivadas en RX
-}
-
 byte TxPacket(byte bID, byte bParameterLength, byte bInstruction, byte Parametros[16])
 {
     byte bCount,bCheckSum,bPacketLength;
     byte TxBuffer[32];
+
+    /*
+     * TRAMA = [00 id longutiudParametros idInstrucción]
+     *
+     */
     TxBuffer[0] = 0xff;
     TxBuffer[1] = 0xff;
     TxBuffer[2] = bID;
@@ -287,12 +280,11 @@ void main(void)
     WDTCTL = WDTPW + WDTHOLD;       // Stop watchdog timer
 
     //Inicializaciones:
-   //init_ucs_24MHz();
+    //init_ucs_24MHz();
     init_puerto();
     init_interrupciones(); //Configurar y activar las interrupciones de los botones
+    init_UART();
     init_timers();
-    init_uart();
-
     __enable_interrupts();
 
     //Bucle principal (infinito):
