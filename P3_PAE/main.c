@@ -27,7 +27,7 @@
 #define SW1_BIT BIT(SW1_POS)
 #define SW2_BIT BIT(SW2_POS)
 typedef uint8_t byte;
-volatile byte DatoLeido_UART;
+volatile byte dataR_UART;
 volatile bool Byte_Recibido;
 volatile byte timeOut;
 
@@ -66,7 +66,7 @@ void EUSCIA2_IRQHandler(void)
 { //interrupcion de recepcion en la UART A0
     EUSCI_A2->IFG &=~EUSCI_A_IFG_RXIFG; //Limpia la interrupcion
     UCA2IE &= ~UCRXIE; //Interrupciones desactivadas en RX
-    DatoLeido_UART = UCA2RXBUF;
+    dataR_UART = UCA2RXBUF;
     Byte_Recibido=true;
     UCA2IE |= UCRXIE; //Interrupciones reactivadas en RX
     UCA2MCTLW |= (0x25 << 8);
@@ -74,8 +74,10 @@ void EUSCIA2_IRQHandler(void)
 
 void TxUACx(uint8_t bTxdData)
 {
-    while(!TXD2_READY); // Espera a que estigui preparat el buffer de transmissi�
-    UCA2TXBUF = bTxdData;
+    while(!TXD2_READY){
+        UCA2TXBUF = bTxdData;
+    }
+
 }
 
 void TA1_0_IRQHandler(void)
@@ -94,7 +96,7 @@ void init_UART(void)
     UCA2CTLW0 |= UCSWRST; //Fem un reset de la USCI, desactiva la USCI (Uniersal Serial Comunication Interface)
     UCA2CTLW0 |= UCSSEL__SMCLK; //UCSYNC=0 mode as�ncron
     UCA2MCTLW = UCOS16; // Necessitem sobre-mostreig => bit 0 = UCOS16 = 1; 16 muestras por cada bit tramitido.
-    UCA2BRW = 1;
+    UCA2BRW = 3;
     P3SEL0 |= BIT1 | BIT2; //I/O funci�: P1.3 = UART0TX, P1.2 = UART0RX
     P3SEL1 &= ~ (BIT1 | BIT2); // lo configura como primer funcion alternativa
     UCA2CTLW0 &= ~UCSWRST; //Reactivem la l�nia de comunicacions s�rie
@@ -127,11 +129,11 @@ struct RxReturn RxPacket(void)
         Byte_Recibido = false;
         while (!Byte_Recibido) //Se_ha_recibido_Byte())
         {
-            Rx_time_out=TimeOut(1000); // tiempo en decenas de microsegundos (ara 10ms)
+            Rx_time_out=TimeOut(100); // tiempo en decenas de microsegundos (ara 10ms)
             if (Rx_time_out) break; //sale del while
         }
         if (Rx_time_out) break; //sale del for si ha habido TimeOut
-        respuesta.StatusPacket[bCount] = DatoLeido_UART; //Get_Byte_Leido_UART();
+        respuesta.StatusPacket[bCount] = dataR_UART; //Get_Byte_Leido_UART();
 
     }
     if (!Rx_time_out)
@@ -148,7 +150,7 @@ struct RxReturn RxPacket(void)
                 if (Rx_time_out) break;
             }
             if (Rx_time_out) break;
-            respuesta.StatusPacket[bCount + 4] = DatoLeido_UART;
+            respuesta.StatusPacket[bCount + 4] = dataR_UART;
         }
 
         bChecksum = 0;
@@ -178,23 +180,11 @@ void init_interrupciones()
     // accesibles mediante la estructura NVIC->ISER[x], con x = 0 o x = 1.
     // Asimismo, hay 2 registros para deshabilitarlas: ICERx, y dos registros para limpiarlas: ICPRx.
 
-    //Int. port 1 = 35 corresponde al bit 3 del segundo registro ISER1:
-    NVIC->ICPR[1] |= 1 << (PORT1_IRQn & 31); //Primero, me aseguro de que no quede ninguna interrupcion residual pendiente para este puerto,
-    NVIC->ISER[1] |= 1 << (PORT1_IRQn & 31); //y habilito las interrupciones del puerto
-
-    //InterrupciÃ³n del Puerto 2 es la User ISR nÃºmero 38.
-    //Para habilitarla, debemos activar el bit 6 del segundo registro ISER1:
-    NVIC->ICPR[1] |= 1 << (PORT2_IRQn & 31); //Primero, me aseguro de que no quede ninguna interrupciÃ³n residual pendiente para este puerto,
-    NVIC->ISER[1] |= 1 << (PORT2_IRQn & 31); //y habilito las interrupciones del puerto
-
     //TODO
     // Timer A1
     NVIC->ICPR[0] |= 1 << (TA1_0_IRQn & 31); // Limpia cualquier interrupciÃ³n residual pendiente
     NVIC->ISER[0] |= 1 << (TA1_0_IRQn & 31); // Habilita la interrupciÃ³n del Timer A1
 
-    // Timer A0
-    NVIC->ICPR[0] |= 1 << (TA0_0_IRQn & 31); // Limpia cualquier interrupciÃ³n residual pendiente
-    NVIC->ISER[0] |= 1 << (TA0_0_IRQn & 31); // Habilita la interrupciÃ³n del Timer A0
 
     NVIC->ICPR[0] |= 1 << (EUSCIA2_IRQn & 31);  //Limpia interrupciones habilita interrupciones
     NVIC->ISER[0] |= 1 << (EUSCIA2_IRQn & 31);
@@ -260,8 +250,10 @@ byte TxPacket(byte bID, byte bParameterLength, byte bInstruction, byte Parametro
     {
         bCheckSum += TxBuffer[bCount];
     }
+
     TxBuffer[bCount] = ~bCheckSum;
     Sentit_Dades_Tx();
+
     for(bCount = 0; bCount < bPacketLength; bCount++)
     {
         TxUACx(TxBuffer[bCount]);
