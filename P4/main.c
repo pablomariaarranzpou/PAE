@@ -35,6 +35,7 @@ volatile bool Byte_Recibido;
 volatile byte timeOut;
 
 
+
 volatile uint8_t sensorL;
 volatile uint8_t sensorC;
 volatile uint8_t sensorR;
@@ -153,9 +154,7 @@ struct RxReturn RxPacket(void)
         }
         if (Rx_time_out) break; //sale del for si ha habido TimeOut
         respuesta.StatusPacket[bCount] = lecturaDato_UART; //Get_Byte_Leido_UART();
-       printf("%02X ", lecturaDato_UART);
     }
-    printf("\n");
     if (!Rx_time_out)
     {
         // LA LONGUTIUD SE ENCUENTRA EN EL CUARTO BYTE DE LA TRAMA
@@ -172,7 +171,7 @@ struct RxReturn RxPacket(void)
             if (Rx_time_out) break;
             respuesta.StatusPacket[bCount + 4] = lecturaDato_UART;
         }
-/*
+
         bChecksum = 0;
         if (!Rx_time_out)
              {
@@ -188,8 +187,8 @@ struct RxReturn RxPacket(void)
     }
     respuesta.time_out = Rx_time_out;
     Desactiva_TimerA1_TimeOut();
-    return respuesta;*/
-
+    return respuesta;
+/*
         bChecksum = 0;
          bPacketLength = bLength+4;
             for(bCount = 2; bCount < bPacketLength-1; bCount++) //calculamos el checksum sumando todos los bytes menos el inicio de la trama
@@ -206,6 +205,7 @@ struct RxReturn RxPacket(void)
         Desactiva_TimerA1_TimeOut();    //detenemos el timer A0
 
         return respuesta;
+        */
 
 }
 
@@ -305,14 +305,6 @@ byte TxPacket(byte bID, byte bParameterLength, byte bInstruction, byte Parametro
     while((UCA0STATW & UCBUSY));
 
     Sentit_Dades_Rx();
-    /*
-
-    printf("TxPacket: ");
-                    int i;
-                    for (i = 0; i < 32; i++) {
-                      printf("%02X ", TxBuffer[i]);
-                    }
-                    printf("\n");*/
 
     return(bPacketLength);
 }
@@ -335,7 +327,23 @@ void main(void)
     //trama_motors_inicial();
 
     //moveForward();
+    byte parametros[16];
 
+        parametros[0] = 0x20; //Direccion inicial de la ubicacion donde se escriben los datos
+        parametros[1] = 380 & 0xFF; // Primer dato a escribir
+        parametros[2] = ((0x00 << 2) & 0x04) | ((380 >> 8) & 0x03); // Primer dato a escribir (1=
+        TxPacket(0x01, 3, 0x03, parametros);
+        RxPacket();
+
+        parametros[2] = ((0x01 << 2) & 0x04) | ((380 >> 8) & 0x03);
+        TxPacket(0x02, 3, 0x03, parametros); //Enviamos al motor 3
+        RxPacket();
+
+        /*
+        volatile int8_t velocidad = 380; // maxima sera 1023
+        volatile byte CWW = 0x00; //Sentido antihorario, valor maximo del Goal position
+        volatile byte CW = 0x01;*/
+/*
     byte parametros[16];
 
         parametros[0] =0x19;
@@ -344,17 +352,8 @@ void main(void)
         TxPacket(0x02, 0x02, 0x03, parametros);
 
         struct RxReturn nsq = RxPacket();
-
-        /*
-               printf("StatusPacket: ");
-               int i;
-               for (i = 0; i < 16; i++) {
-                 printf("%02X ", nsq.StatusPacket[i]);
-               }
-               printf("\n");
-*/
-
-    }
+        */
+  }
 
 
 void trama_motors_inicial(void){
