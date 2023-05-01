@@ -8,6 +8,9 @@ SHELL = cmd.exe
 CMD_SRCS += \
 ../msp432p401r.cmd 
 
+LIB_SRCS += \
+../lib_PAE.lib 
+
 C_SRCS += \
 ../lib_movement.c \
 ../main.c \

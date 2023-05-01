@@ -22,7 +22,6 @@
 #define LED_RGB_G BIT1
 #define LED_RGB_B BIT2
 
-#define init_ucs_24MHz();
 
 #define SW1_POS 1
 #define SW2_POS 4
@@ -44,6 +43,7 @@ volatile uint8_t sensorR;
 typedef struct RxReturn{
     byte StatusPacket[32];
     byte time_out;
+    byte bChecksum;
 }RxReturn;
 
 byte TimeOut(int time){
@@ -56,14 +56,14 @@ void init_puerto(){
     P3SEL0 &= ~(BIT0); //P3 como GPIOs
     P3SEL1 &= ~(BIT0);
 
-    P1DIR |= BIT0; // Port P3.0 como salida (Data Direction selector Tx/Rx)
-    P1OUT &= ~BIT0; ////Inicializamos el sentido de los datos a 0 (Rx)
+    P3DIR |= BIT0; // Port P3.0 como salida (Data Direction selector Tx/Rx)
+    P3OUT &= ~BIT0; ////Inicializamos el sentido de los datos a 0 (Rx)
 }
 
 
 void Sentit_Dades_Rx(void)
 { //Configuraciï¿½ del Half Duplex dels motors: RECEPTOR
-    P3OUT &= ~BIT0; //El pin P3.0 (DIRECTION_PORT) el posem a 0 (Rx)
+   P3OUT &= ~BIT0; //El pin P3.0 (DIRECTION_PORT) el posem a 0 (Rx)
 }
 
 void Sentit_Dades_Tx(void)
@@ -74,7 +74,8 @@ void Sentit_Dades_Tx(void)
 
 void TxUACx(uint8_t bTxdData)
 {
-    while(!TXD0_READY); // Espera a que estigui preparat el buffer de transmissiï¿½
+
+    while(!TXD0_READY); // Espera a que estigui preparat el buffer de transmissio
     UCA0TXBUF = bTxdData;
 }
 
@@ -101,7 +102,7 @@ UCA0CTLW0 |= UCSSEL__SMCLK; //UCSYNC=0 mode asíncron
 //UCPEN=0 sense bit de paritat
 //Triem SMCLK (24MHz) com a font del clock BRCLK
 UCA0MCTLW = UCOS16; // Necessitem sobre-mostreig => bit 0 = UCOS16 = 1
-UCA0BRW = 13; //Prescaler de BRCLK fixat a 13. Com SMCLK va a24MHz,
+UCA0BRW = 3; //Prescaler de BRCLK fixat a 13. Com SMCLK va a24MHz,
 //volem un baud rate de 115200 bps i fem sobre-mostreig de 16
 //el rellotge de la UART ha de ser de ~1.85MHz (24MHz/13).
 UCA0MCTLW |= (0x25 << 8); //UCBRSx, part fractional del baud rate
@@ -131,12 +132,16 @@ void Desactiva_TimerA1_TimeOut(){
 
 struct RxReturn RxPacket(void)
 {
+    byte bPacketLength;
     byte bCount, bLength, bChecksum;
     byte Rx_time_out = 0;
     struct RxReturn respuesta;
     respuesta.time_out = 0;
     Activa_TimerA1_TimeOut(); //Activamos el timer para el timeOut
     Sentit_Dades_Rx(); //Ponemos la linea half duplex en Rx
+    printf("StatusPacket: ");
+
+
     for (bCount = 0; bCount < 4; bCount++)
     {
         reset_timeout();
@@ -148,8 +153,9 @@ struct RxReturn RxPacket(void)
         }
         if (Rx_time_out) break; //sale del for si ha habido TimeOut
         respuesta.StatusPacket[bCount] = lecturaDato_UART; //Get_Byte_Leido_UART();
-
+       printf("%02X ", lecturaDato_UART);
     }
+    printf("\n");
     if (!Rx_time_out)
     {
         // LA LONGUTIUD SE ENCUENTRA EN EL CUARTO BYTE DE LA TRAMA
@@ -166,7 +172,7 @@ struct RxReturn RxPacket(void)
             if (Rx_time_out) break;
             respuesta.StatusPacket[bCount + 4] = lecturaDato_UART;
         }
-
+/*
         bChecksum = 0;
         if (!Rx_time_out)
              {
@@ -182,7 +188,25 @@ struct RxReturn RxPacket(void)
     }
     respuesta.time_out = Rx_time_out;
     Desactiva_TimerA1_TimeOut();
-    return respuesta;
+    return respuesta;*/
+
+        bChecksum = 0;
+         bPacketLength = bLength+4;
+            for(bCount = 2; bCount < bPacketLength-1; bCount++) //calculamos el checksum sumando todos los bytes menos el inicio de la trama
+            {                                                   //y el CS para ver si coincide con el enviado en el Status Packet
+                bChecksum += respuesta.StatusPacket[bCount];
+            }
+            respuesta.StatusPacket[bCount] = ~ bChecksum;       //guardamos el CS (complemento a1)
+            respuesta.bChecksum = respuesta.StatusPacket[bLength+3] != respuesta.StatusPacket[bCount];   //compramos si el CS calculado y el recibido coinciden
+
+        }
+        if(Rx_time_out){                                        //si ha habido algún timeout
+            respuesta.time_out = true;                             //lo indicamos
+        }
+        Desactiva_TimerA1_TimeOut();    //detenemos el timer A0
+
+        return respuesta;
+
 }
 
 void init_interrupciones()
@@ -225,7 +249,7 @@ void init_timers(void)
 
 
     TIMER_A1->CTL=TIMER_A_CTL_ID__1 | TIMER_A_CTL_SSEL__SMCLK | TIMER_A_CTL_CLR | TIMER_A_CTL_MC__UP;
-    TIMER_A1->CCR[0]=240000;
+    TIMER_A1->CCR[0]=2400 - 1;
     TIMER_A1->CCTL[0] |= TIMER_A_CCTLN_CCIE;
 
 }
@@ -250,6 +274,7 @@ byte TxPacket(byte bID, byte bParameterLength, byte bInstruction, byte Parametro
     TxBuffer[2] = bID;
     TxBuffer[3] = bParameterLength+2;
     TxBuffer[4] = bInstruction;
+
 
     char error[] = "adr. no permitida";
 
@@ -280,8 +305,57 @@ byte TxPacket(byte bID, byte bParameterLength, byte bInstruction, byte Parametro
     while((UCA0STATW & UCBUSY));
 
     Sentit_Dades_Rx();
+    /*
+
+    printf("TxPacket: ");
+                    int i;
+                    for (i = 0; i < 32; i++) {
+                      printf("%02X ", TxBuffer[i]);
+                    }
+                    printf("\n");*/
+
     return(bPacketLength);
 }
+
+
+
+void main(void)
+{
+    WDTCTL = WDTPW + WDTHOLD;       // Stop watchdog timer
+
+    //Inicializaciones:
+   init_ucs_24MHz();
+   init_puerto();
+    init_interrupciones(); //Configurar y activar las interrupciones de los botones
+    init_timers();
+    init_UART();
+
+    __enable_interrupts();
+
+    //trama_motors_inicial();
+
+    //moveForward();
+
+    byte parametros[16];
+
+        parametros[0] =0x19;
+        parametros[1] = 0x01;
+
+        TxPacket(0x02, 0x02, 0x03, parametros);
+
+        struct RxReturn nsq = RxPacket();
+
+        /*
+               printf("StatusPacket: ");
+               int i;
+               for (i = 0; i < 16; i++) {
+                 printf("%02X ", nsq.StatusPacket[i]);
+               }
+               printf("\n");
+*/
+
+    }
+
 
 void trama_motors_inicial(void){
     //Motor 1
@@ -316,36 +390,4 @@ void trama_motors_inicial(void){
     TxPacket(0x02, 3, 0x03, parametros4);
     RxPacket();
 }
-
-
-void main(void)
-{
-    WDTCTL = WDTPW + WDTHOLD;       // Stop watchdog timer
-
-    //Inicializaciones:
-   init_ucs_24MHz();
-   // init_puerto();
-    init_interrupciones(); //Configurar y activar las interrupciones de los botones
-    init_timers();
-    init_UART();
-
-    __enable_interrupts();
-
-    //trama_motors_inicial();
-
-    //moveForward();
-
-    byte parametros[16];
-
-        parametros[0] =0x19;
-        parametros[1] = 0x01;
-
-        TxPacket(0x02, 2, 0x03, parametros);
-        struct RxReturn nsq = RxPacket();
-        while(true){
-
-        }
-
-
-    }
 
